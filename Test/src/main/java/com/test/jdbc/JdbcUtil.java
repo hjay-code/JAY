@@ -6,6 +6,10 @@ import com.test.table.TableInfo;
 import lombok.extern.slf4j.Slf4j;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * MySQL JDBC连接工具类
@@ -16,7 +20,7 @@ public class JdbcUtil {
     private static final String DRIVER = "com.mysql.cj.jdbc.Driver";
     
     // 数据库连接配置（请根据实际情况修改）
-    private static final String URL = "jdbc:mysql://localhost:3306/test?useSSL=false&serverTimezone=UTC&characterEncoding=utf8";
+    private static final String URL = "jdbc:mysql://localhost:3306/test?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true";
     private static final String USERNAME = "root";
     private static final String PASSWORD = "123456";
 
@@ -277,7 +281,7 @@ public class JdbcUtil {
             int columnCount = metaData.getColumnCount();
             
             // 获取列名
-            java.util.List<String> columnNames = new java.util.ArrayList<>();
+            List<String> columnNames = new ArrayList<>();
             for (int i = 1; i <= columnCount; i++) {
                 columnNames.add(metaData.getColumnName(i));
             }
@@ -285,7 +289,7 @@ public class JdbcUtil {
             
             // 获取数据行
             while (rs.next()) {
-                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                Map<String, Object> row = new LinkedHashMap<>();
                 for (int i = 1; i <= columnCount; i++) {
                     row.put(metaData.getColumnName(i), rs.getObject(i));
                 }
@@ -300,6 +304,72 @@ public class JdbcUtil {
             return tableData;
         } finally {
             close(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * 获取数据库中所有表的表名列表
+     *
+     * @return 表名列表
+     */
+    public static List<String> getAllTableNames() {
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        List<String> tableNames = new ArrayList<>();
+        
+        try {
+            conn = getConnection();
+            DatabaseMetaData metaData = conn.getMetaData();
+            
+            // 获取所有表（只包括普通表，不包括视图）
+            rs = metaData.getTables(conn.getCatalog(), null, null, new String[]{"TABLE"});
+            
+            while (rs.next()) {
+                String tableName = rs.getString("TABLE_NAME");
+                tableNames.add(tableName);
+            }
+            
+            log.info("获取所有表名成功，共 {} 个表", tableNames.size());
+            return tableNames;
+            
+        } catch (SQLException e) {
+            log.error("获取所有表名失败: {}", e.getMessage());
+            return tableNames;
+        } finally {
+            close(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * 获取数据库中所有表的完整结构信息
+     *
+     * @return TableInfo列表，每个元素包含一个表的完整结构信息
+     */
+    public static List<TableInfo> getAllTablesInfo() {
+        List<TableInfo> allTablesInfo = new ArrayList<>();
+        
+        try {
+            // 先获取所有表名
+            List<String> tableNames = getAllTableNames();
+            
+            log.info("开始获取 {} 个表的详细结构信息...", tableNames.size());
+            
+            // 遍历每个表，获取其结构信息
+            for (String tableName : tableNames) {
+                TableInfo tableInfo = getTableInfo(tableName);
+                if (tableInfo != null && tableInfo.getColumnCount() > 0) {
+                    allTablesInfo.add(tableInfo);
+                }
+            }
+            
+            log.info("获取所有表结构成功，共 {} 个表", allTablesInfo.size());
+            return allTablesInfo;
+            
+        } catch (Exception e) {
+            log.error("获取所有表结构失败: {}", e.getMessage());
+            return allTablesInfo;
         }
     }
 
