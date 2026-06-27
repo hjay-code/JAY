@@ -1,738 +1,575 @@
 package com.test.hbase;
 
-import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.*;
 import org.apache.hadoop.hbase.client.*;
-import org.apache.hadoop.hbase.filter.*;
+import org.apache.hadoop.hbase.filter.Filter;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
- * HBase数据库操作工具类
- * 提供常用的HBase CRUD操作、表管理等功能
+ * HBase 工具类，提供对 HBase 的增删查改及连接测试功能。
+ * <p>
+ * 使用前需确保 HBase 服务已启动，并在 hbase-site.xml 或代码中正确配置 ZooKeeper 地址。
+ * </p>
  */
-@Slf4j
 public class HBaseUtil {
 
-    private static final String ZOOKEEPER_QUORUM = "localhost:2181";
-    private static final String CLIENT_PORT = "2181";
+    private static final Logger LOG = LoggerFactory.getLogger(HBaseUtil.class);
+
+    private static Connection connection = null;
+
+    // 默认配置：可根据实际情况修改或通过 hbase-site.xml 加载
+    private static final String DEFAULT_ZOOKEEPER_QUORUM = "localhost:2181";
+    private static final String DEFAULT_ZOOKEEPER_ZNODE_PARENT = "/hbase";
 
     /**
-     * Hadoop 主目录，Windows 环境下必须设置，指向包含 winutils.exe 和 hadoop.dll 的本地路径
+     * 静态初始化块：处理 Windows 下 Hadoop home 未设置的问题
+     * <p>
+     * HBase 客户端在 Windows 上需要 hadoop.home.dir 或 HADOOP_HOME 环境变量，
+     * 用于加载 Hadoop 本地库（winutils.exe 等）。
+     * 如果未设置，自动创建一个临时目录作为 hadoop.home.dir。
+     * </p>
      */
-    private static final String HADOOP_HOME_DIR = "D:/hadoop";
-
-    private static Configuration configuration;
-    private static Connection connection;
-    private static Admin admin;
-
-    // 静态初始化块，加载HBase配置
     static {
-        try {
-            // Windows 环境下必须设置 hadoop.home.dir，否则会报错：HADOOP_HOME and hadoop.home.dir are unset
-            if (System.getProperty("hadoop.home.dir") == null) {
-                System.setProperty("hadoop.home.dir", HADOOP_HOME_DIR);
-                log.info("设置 hadoop.home.dir = {}", HADOOP_HOME_DIR);
+        String osName = System.getProperty("os.name").toLowerCase();
+        if (osName.contains("win")) {
+            String hadoopHome = System.getProperty("hadoop.home.dir");
+            if (hadoopHome == null || hadoopHome.trim().isEmpty()) {
+                // 检查环境变量 HADOOP_HOME
+                String envHadoopHome = System.getenv("HADOOP_HOME");
+                if (envHadoopHome != null && !envHadoopHome.trim().isEmpty()) {
+                    System.setProperty("hadoop.home.dir", envHadoopHome);
+                    LOG.info("使用环境变量 HADOOP_HOME: {}", envHadoopHome);
+                } else {
+                    // 使用项目目录下的 hadoop 目录作为 fallback
+                    String fallbackHome = "D:\\hadoop\\winutils-master\\hadoop-2.7.7";
+                    System.setProperty("hadoop.home.dir", fallbackHome);
+                    LOG.info("hadoop.home.dir 未设置，使用临时目录: {}", fallbackHome);
+                    LOG.warn("建议从 https://github.com/steveloughran/winutils 下载 winutils.exe 并放置在 {}/bin/ 目录下", fallbackHome);
+                }
             }
-
-            configuration = HBaseConfiguration.create();
-            configuration.set("hbase.zookeeper.quorum", ZOOKEEPER_QUORUM);
-            configuration.set("hbase.zookeeper.property.clientPort", CLIENT_PORT);
-
-            connection = ConnectionFactory.createConnection(configuration);
-            admin = connection.getAdmin();
-
-            log.info("HBase连接初始化成功");
-        } catch (IOException e) {
-            log.error("HBase连接初始化失败: {}", e.getMessage());
-            throw new RuntimeException("HBase连接初始化失败", e);
+            // 解决 Windows 下权限检查错误
+            System.setProperty("HADOOP_HOME", System.getProperty("hadoop.home.dir"));
         }
     }
 
     /**
-     * 获取Configuration对象
-     *
-     * @return Configuration对象
+     * 私有构造方法，防止实例化
      */
-    public static Configuration getConfiguration() {
-        return configuration;
+    private HBaseUtil() {
+    }
+
+    // ======================== 连接管理 ========================
+
+    /**
+     * 初始化 HBase 配置
+     *
+     * @param quorum     ZooKeeper 地址（格式：host:port），传 null 使用默认值
+     * @param znodeParent ZNode 父节点，传 null 使用默认值
+     * @return HBase Configuration
+     */
+    public static Configuration initConfig(String quorum, String znodeParent) {
+        Configuration config = HBaseConfiguration.create();
+        if (quorum != null && !quorum.trim().isEmpty()) {
+            config.set(HConstants.ZOOKEEPER_QUORUM, quorum);
+        } else {
+            config.set(HConstants.ZOOKEEPER_QUORUM, DEFAULT_ZOOKEEPER_QUORUM);
+        }
+        if (znodeParent != null && !znodeParent.trim().isEmpty()) {
+            config.set(HConstants.ZOOKEEPER_ZNODE_PARENT, znodeParent);
+        } else {
+            config.set(HConstants.ZOOKEEPER_ZNODE_PARENT, DEFAULT_ZOOKEEPER_ZNODE_PARENT);
+        }
+        // 连接超时设置（毫秒）
+        config.setInt(HConstants.HBASE_CLIENT_OPERATION_TIMEOUT, 30000);
+        config.setInt(HConstants.HBASE_CLIENT_SCANNER_TIMEOUT_PERIOD, 30000);
+
+        // 禁用 Hadoop Shell 的本地库检查（Windows 下避免 HADOOP_HOME 报错）
+        config.setBoolean("hadoop.security.authentication", false);
+        config.set("hadoop.security.authorization", "false");
+        return config;
     }
 
     /**
-     * 获取Connection对象
+     * 获取 HBase 连接（单例模式，使用默认配置）
      *
-     * @return Connection对象
+     * @return HBase Connection
+     * @throws IOException 连接异常
      */
-    public static Connection getConnection() {
+    public static synchronized Connection getConnection() throws IOException {
+        if (connection == null || connection.isClosed()) {
+            Configuration config = initConfig(null, null);
+            connection = ConnectionFactory.createConnection(config);
+            LOG.info("HBase 连接已创建");
+        }
         return connection;
     }
 
     /**
-     * 获取Admin对象
+     * 使用自定义配置获取 HBase 连接
      *
-     * @return Admin对象
+     * @param config HBase Configuration
+     * @return HBase Connection
+     * @throws IOException 连接异常
      */
-    public static Admin getAdmin() {
-        return admin;
+    public static synchronized Connection getConnection(Configuration config) throws IOException {
+        if (connection == null || connection.isClosed()) {
+            connection = ConnectionFactory.createConnection(config);
+            LOG.info("HBase 连接已创建（自定义配置）");
+        }
+        return connection;
     }
 
     /**
-     * 判断表是否存在
+     * 使用指定 ZooKeeper 地址获取连接
      *
-     * @param tableName 表名
-     * @return 表是否存在
+     * @param quorum ZooKeeper 地址
+     * @return HBase Connection
+     * @throws IOException 连接异常
      */
-    public static boolean isTableExists(String tableName) {
-        try {
-            TableName table = TableName.valueOf(tableName);
-            boolean exists = admin.tableExists(table);
-            log.debug("表 {} 存在状态: {}", tableName, exists);
-            return exists;
-        } catch (IOException e) {
-            log.error("检查表是否存在失败: {}", e.getMessage());
-            return false;
+    public static synchronized Connection getConnection(String quorum) throws IOException {
+        Configuration config = initConfig(quorum, null);
+        return getConnection(config);
+    }
+
+    /**
+     * 关闭 HBase 连接
+     */
+    public static synchronized void closeConnection() {
+        if (connection != null) {
+            try {
+                connection.close();
+                LOG.info("HBase 连接已关闭");
+            } catch (IOException e) {
+                LOG.error("关闭 HBase 连接失败", e);
+            } finally {
+                connection = null;
+            }
         }
     }
 
     /**
+     * 连接测试
+     *
+     * @return true 表示连接成功，false 表示连接失败
+     */
+    public static boolean testConnection() {
+        return testConnection(null, null);
+    }
+
+    /**
+     * 连接测试（指定 ZooKeeper 地址）
+     *
+     * @param quorum ZooKeeper 地址
+     * @return true 表示连接成功，false 表示连接失败
+     */
+    public static boolean testConnection(String quorum) {
+        return testConnection(quorum, null);
+    }
+
+    /**
+     * 连接测试（指定 ZooKeeper 地址和 ZNode 父节点）
+     *
+     * @param quorum      ZooKeeper 地址
+     * @param znodeParent ZNode 父节点
+     * @return true 表示连接成功，false 表示连接失败
+     */
+    public static boolean testConnection(String quorum, String znodeParent) {
+        try {
+            Configuration config = initConfig(quorum, znodeParent);
+            Connection testConn = ConnectionFactory.createConnection(config);
+            // 通过获取表名列表来验证连接是否可用
+            Admin admin = testConn.getAdmin();
+            TableName[] tableNames = admin.listTableNames();
+            LOG.info("HBase 连接测试成功，当前共有 {} 张表", tableNames.length);
+            for (TableName tn : tableNames) {
+                LOG.debug("  表: {}", tn.getNameAsString());
+            }
+            admin.close();
+            testConn.close();
+            return true;
+        } catch (Exception e) {
+            LOG.error("HBase 连接测试失败: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    // ======================== 表操作 ========================
+
+    /**
      * 创建表（单列族）
      *
-     * @param tableName 表名
+     * @param tableName    表名
      * @param columnFamily 列族名
-     * @return 是否创建成功
+     * @return true 表示创建成功
+     * @throws IOException 操作异常
      */
-    public static boolean createTable(String tableName, String columnFamily) {
+    public static boolean createTable(String tableName, String columnFamily) throws IOException {
         return createTable(tableName, new String[]{columnFamily});
     }
 
     /**
      * 创建表（多列族）
      *
-     * @param tableName 表名
+     * @param tableName     表名
      * @param columnFamilies 列族名数组
-     * @return 是否创建成功
+     * @return true 表示创建成功
+     * @throws IOException 操作异常
      */
-    public static boolean createTable(String tableName, String[] columnFamilies) {
-        try {
-            TableName table = TableName.valueOf(tableName);
+    public static boolean createTable(String tableName, String[] columnFamilies) throws IOException {
+        Connection conn = getConnection();
+        Admin admin = conn.getAdmin();
+        TableName tn = TableName.valueOf(tableName);
 
-            if (admin.tableExists(table)) {
-                log.warn("表 {} 已存在", tableName);
-                return false;
-            }
-
-            TableDescriptorBuilder tableDescriptor = TableDescriptorBuilder.newBuilder(table);
-
-            for (String cf : columnFamilies) {
-                ColumnFamilyDescriptor columnFamily = ColumnFamilyDescriptorBuilder.newBuilder(
-                        Bytes.toBytes(cf)
-                ).build();
-                tableDescriptor.setColumnFamily(columnFamily);
-            }
-
-            admin.createTable(tableDescriptor.build());
-            log.info("创建表成功: {}", tableName);
-            return true;
-        } catch (IOException e) {
-            log.error("创建表失败: {}", e.getMessage());
+        if (admin.tableExists(tn)) {
+            LOG.warn("表 {} 已存在", tableName);
+            admin.close();
             return false;
         }
+
+        TableDescriptorBuilder builder = TableDescriptorBuilder.newBuilder(tn);
+        for (String cf : columnFamilies) {
+            ColumnFamilyDescriptorBuilder cfBuilder =
+                    ColumnFamilyDescriptorBuilder.newBuilder(Bytes.toBytes(cf));
+            builder.setColumnFamily(cfBuilder.build());
+        }
+        admin.createTable(builder.build());
+        LOG.info("表 {} 创建成功，列族: {}", tableName, String.join(", ", columnFamilies));
+        admin.close();
+        return true;
     }
 
     /**
      * 删除表
      *
      * @param tableName 表名
-     * @return 是否删除成功
+     * @return true 表示删除成功
+     * @throws IOException 操作异常
      */
-    public static boolean deleteTable(String tableName) {
-        try {
-            TableName table = TableName.valueOf(tableName);
+    public static boolean deleteTable(String tableName) throws IOException {
+        Connection conn = getConnection();
+        Admin admin = conn.getAdmin();
+        TableName tn = TableName.valueOf(tableName);
 
-            if (!admin.tableExists(table)) {
-                log.warn("表 {} 不存在", tableName);
-                return false;
-            }
-
-            if (admin.isTableEnabled(table)) {
-                admin.disableTable(table);
-                log.debug("表 {} 已禁用", tableName);
-            }
-
-            admin.deleteTable(table);
-            log.info("删除表成功: {}", tableName);
-            return true;
-        } catch (IOException e) {
-            log.error("删除表失败: {}", e.getMessage());
+        if (!admin.tableExists(tn)) {
+            LOG.warn("表 {} 不存在", tableName);
+            admin.close();
             return false;
         }
+
+        // 先禁用表，再删除
+        if (!admin.isTableDisabled(tn)) {
+            admin.disableTable(tn);
+        }
+        admin.deleteTable(tn);
+        LOG.info("表 {} 删除成功", tableName);
+        admin.close();
+        return true;
     }
 
     /**
-     * 禁用表
+     * 判断表是否存在
      *
      * @param tableName 表名
-     * @return 是否禁用成功
+     * @return true 表示表存在
+     * @throws IOException 操作异常
      */
-    public static boolean disableTable(String tableName) {
-        try {
-            TableName table = TableName.valueOf(tableName);
-
-            if (!admin.tableExists(table)) {
-                log.warn("表 {} 不存在", tableName);
-                return false;
-            }
-
-            if (!admin.isTableDisabled(table)) {
-                admin.disableTable(table);
-            }
-
-            log.info("禁用表成功: {}", tableName);
-            return true;
-        } catch (IOException e) {
-            log.error("禁用表失败: {}", e.getMessage());
-            return false;
-        }
+    public static boolean tableExists(String tableName) throws IOException {
+        Connection conn = getConnection();
+        Admin admin = conn.getAdmin();
+        boolean exists = admin.tableExists(TableName.valueOf(tableName));
+        admin.close();
+        return exists;
     }
 
-    /**
-     * 启用表
-     *
-     * @param tableName 表名
-     * @return 是否启用成功
-     */
-    public static boolean enableTable(String tableName) {
-        try {
-            TableName table = TableName.valueOf(tableName);
-
-            if (!admin.tableExists(table)) {
-                log.warn("表 {} 不存在", tableName);
-                return false;
-            }
-
-            if (!admin.isTableEnabled(table)) {
-                admin.enableTable(table);
-            }
-
-            log.info("启用表成功: {}", tableName);
-            return true;
-        } catch (IOException e) {
-            log.error("启用表失败: {}", e.getMessage());
-            return false;
-        }
-    }
+    // ======================== 新增 / 修改数据（Put） ========================
 
     /**
-     * 获取所有表名列表
+     * 插入或更新一行数据
      *
-     * @return 表名列表
+     * @param tableName  表名
+     * @param rowKey     行键
+     * @param family     列族
+     * @param qualifier  列限定符
+     * @param value      值
+     * @throws IOException 操作异常
      */
-    public static List<String> getAllTableNames() {
-        List<String> tableNames = new ArrayList<>();
-        try {
-            TableName[] tables = admin.listTableNames();
-            for (TableName table : tables) {
-                tableNames.add(table.getNameAsString());
-            }
-            log.info("获取所有表名成功，共 {} 个表", tableNames.size());
-            return tableNames;
-        } catch (IOException e) {
-            log.error("获取所有表名失败: {}", e.getMessage());
-            return tableNames;
-        }
-    }
-
-    /**
-     * 插入或更新数据（单条）
-     *
-     * @param tableName 表名
-     * @param rowKey 行键
-     * @param columnFamily 列族
-     * @param qualifier 列限定符
-     * @param value 值
-     * @return 是否成功
-     */
-    public static boolean putData(String tableName, String rowKey, String columnFamily,
-                                  String qualifier, String value) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static void putData(String tableName, String rowKey, String family,
+                               String qualifier, String value) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Put put = new Put(Bytes.toBytes(rowKey));
-            put.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier), Bytes.toBytes(value));
-
+            put.addColumn(Bytes.toBytes(family), Bytes.toBytes(qualifier), Bytes.toBytes(value));
             table.put(put);
-            log.debug("插入数据成功: table={}, rowKey={}, cf={}, qualifier={}",
-                    tableName, rowKey, columnFamily, qualifier);
-            return true;
-        } catch (IOException e) {
-            log.error("插入数据失败: {}", e.getMessage());
-            return false;
-        } finally {
-            closeTable(table);
+            LOG.debug("数据写入成功: table={}, rowKey={}, {}=>{}:{} => {}",
+                    tableName, rowKey, family, qualifier, value);
         }
     }
 
     /**
-     * 批量插入数据
+     * 插入或更新一行数据（多列）
      *
      * @param tableName 表名
-     * @param puts Put对象列表
-     * @return 是否成功
+     * @param rowKey    行键
+     * @param family    列族
+     * @param columns   列数据 Map（列限定符 -> 值）
+     * @throws IOException 操作异常
      */
-    public static boolean putBatch(String tableName, List<Put> puts) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static void putRow(String tableName, String rowKey, String family,
+                              Map<String, String> columns) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
+            Put put = new Put(Bytes.toBytes(rowKey));
+            byte[] familyBytes = Bytes.toBytes(family);
+            for (Map.Entry<String, String> entry : columns.entrySet()) {
+                put.addColumn(familyBytes, Bytes.toBytes(entry.getKey()), Bytes.toBytes(entry.getValue()));
+            }
+            table.put(put);
+            LOG.debug("批量数据写入成功: table={}, rowKey={}, 共 {} 列", tableName, rowKey, columns.size());
+        }
+    }
+
+    /**
+     * 批量插入多行数据
+     *
+     * @param tableName 表名
+     * @param puts      Put 对象列表
+     * @throws IOException 操作异常
+     */
+    public static void putBatch(String tableName, List<Put> puts) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             table.put(puts);
-            log.info("批量插入数据成功: table={}, 数量={}", tableName, puts.size());
-            return true;
-        } catch (IOException e) {
-            log.error("批量插入数据失败: {}", e.getMessage());
-            return false;
-        } finally {
-            closeTable(table);
+            LOG.debug("批量写入 {} 行数据成功", puts.size());
         }
     }
 
+    // ======================== 查询数据（Get） ========================
+
     /**
-     * 根据rowKey查询数据（整行）
+     * 根据行键查询一行数据
      *
      * @param tableName 表名
-     * @param rowKey 行键
-     * @return 结果Map，key为"cf:qualifier"，value为值
+     * @param rowKey    行键
+     * @return Result 对象，包含所有列族数据
+     * @throws IOException 操作异常
      */
-    public static Map<String, String> getData(String tableName, String rowKey) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static Result getRow(String tableName, String rowKey) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Get get = new Get(Bytes.toBytes(rowKey));
-            Result result = table.get(get);
-
-            Map<String, String> resultMap = new HashMap<>();
-            for (Cell cell : result.listCells()) {
-                String family = Bytes.toString(CellUtil.cloneFamily(cell));
-                String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
-                String value = Bytes.toString(CellUtil.cloneValue(cell));
-                resultMap.put(family + ":" + qualifier, value);
-            }
-
-            log.debug("查询数据成功: table={}, rowKey={}", tableName, rowKey);
-            return resultMap;
-        } catch (IOException e) {
-            log.error("查询数据失败: {}", e.getMessage());
-            return Collections.emptyMap();
-        } finally {
-            closeTable(table);
+            return table.get(get);
         }
     }
 
     /**
-     * 根据rowKey和列族查询数据
+     * 根据行键查询指定列族的数据
      *
      * @param tableName 表名
-     * @param rowKey 行键
-     * @param columnFamily 列族
-     * @return 结果Map，key为qualifier，value为值
+     * @param rowKey    行键
+     * @param family    列族
+     * @return Result 对象
+     * @throws IOException 操作异常
      */
-    public static Map<String, String> getDataByFamily(String tableName, String rowKey, String columnFamily) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static Result getRow(String tableName, String rowKey, String family) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Get get = new Get(Bytes.toBytes(rowKey));
-            get.addFamily(Bytes.toBytes(columnFamily));
-            Result result = table.get(get);
-
-            Map<String, String> resultMap = new HashMap<>();
-            for (Cell cell : result.listCells()) {
-                String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
-                String value = Bytes.toString(CellUtil.cloneValue(cell));
-                resultMap.put(qualifier, value);
-            }
-
-            log.debug("查询数据成功: table={}, rowKey={}, cf={}", tableName, rowKey, columnFamily);
-            return resultMap;
-        } catch (IOException e) {
-            log.error("查询数据失败: {}", e.getMessage());
-            return Collections.emptyMap();
-        } finally {
-            closeTable(table);
+            get.addFamily(Bytes.toBytes(family));
+            return table.get(get);
         }
     }
 
     /**
-     * 根据rowKey、列族、列限定符查询数据
+     * 根据行键查询指定列的数据
      *
      * @param tableName 表名
-     * @param rowKey 行键
-     * @param columnFamily 列族
+     * @param rowKey    行键
+     * @param family    列族
      * @param qualifier 列限定符
-     * @return 值
+     * @return 单元格的字符串值，若不存在返回 null
+     * @throws IOException 操作异常
      */
-    public static String getDataByColumn(String tableName, String rowKey, String columnFamily, String qualifier) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static String getCell(String tableName, String rowKey, String family,
+                                 String qualifier) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Get get = new Get(Bytes.toBytes(rowKey));
-            get.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
+            get.addColumn(Bytes.toBytes(family), Bytes.toBytes(qualifier));
             Result result = table.get(get);
-
-            Cell cell = result.getColumnLatestCell(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
-            if (cell != null) {
-                String value = Bytes.toString(CellUtil.cloneValue(cell));
-                log.debug("查询数据成功: table={}, rowKey={}, cf={}, qualifier={}",
-                        tableName, rowKey, columnFamily, qualifier);
-                return value;
+            Cell cell = result.getColumnLatestCell(Bytes.toBytes(family), Bytes.toBytes(qualifier));
+            if (cell == null) {
+                return null;
             }
-
-            return null;
-        } catch (IOException e) {
-            log.error("查询数据失败: {}", e.getMessage());
-            return null;
-        } finally {
-            closeTable(table);
+            return Bytes.toString(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
         }
     }
 
+    // ======================== 扫描数据（Scan） ========================
+
     /**
-     * 扫描全表数据
+     * 全表扫描
      *
      * @param tableName 表名
-     * @return 结果List，每个元素是一个Map，包含rowKey和数据
+     * @return ResultScanner
+     * @throws IOException 操作异常
      */
-    public static List<Map<String, Object>> scanTable(String tableName) {
-        Table table = null;
-        ResultScanner scanner = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
-            Scan scan = new Scan();
-            scanner = table.getScanner(scan);
-
-            List<Map<String, Object>> resultList = new ArrayList<>();
-            for (Result result : scanner) {
-                Map<String, Object> rowMap = new LinkedHashMap<>();
-                rowMap.put("rowKey", Bytes.toString(result.getRow()));
-
-                for (Cell cell : result.listCells()) {
-                    String family = Bytes.toString(CellUtil.cloneFamily(cell));
-                    String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
-                    String value = Bytes.toString(CellUtil.cloneValue(cell));
-                    rowMap.put(family + ":" + qualifier, value);
-                }
-
-                resultList.add(rowMap);
-            }
-
-            log.info("扫描表成功: table={}, 行数={}", tableName, resultList.size());
-            return resultList;
-        } catch (IOException e) {
-            log.error("扫描表失败: {}", e.getMessage());
-            return Collections.emptyList();
-        } finally {
-            closeScanner(scanner);
-            closeTable(table);
-        }
+    public static ResultScanner scanTable(String tableName) throws IOException {
+        Connection conn = getConnection();
+        Table table = conn.getTable(TableName.valueOf(tableName));
+        Scan scan = new Scan();
+        return table.getScanner(scan);
     }
 
     /**
-     * 根据前缀扫描数据
+     * 带过滤器的扫描
      *
      * @param tableName 表名
-     * @param rowKeyPrefix 行键前缀
-     * @return 结果List
+     * @param filter    HBase Filter
+     * @return ResultScanner
+     * @throws IOException 操作异常
      */
-    public static List<Map<String, Object>> scanByPrefix(String tableName, String rowKeyPrefix) {
-        Table table = null;
-        ResultScanner scanner = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
-            Scan scan = new Scan();
-            Filter filter = new PrefixFilter(Bytes.toBytes(rowKeyPrefix));
-            scan.setFilter(filter);
-            scanner = table.getScanner(scan);
-
-            List<Map<String, Object>> resultList = new ArrayList<>();
-            for (Result result : scanner) {
-                Map<String, Object> rowMap = new LinkedHashMap<>();
-                rowMap.put("rowKey", Bytes.toString(result.getRow()));
-
-                for (Cell cell : result.listCells()) {
-                    String family = Bytes.toString(CellUtil.cloneFamily(cell));
-                    String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
-                    String value = Bytes.toString(CellUtil.cloneValue(cell));
-                    rowMap.put(family + ":" + qualifier, value);
-                }
-
-                resultList.add(rowMap);
-            }
-
-            log.info("按前缀扫描成功: table={}, prefix={}, 行数={}", tableName, rowKeyPrefix, resultList.size());
-            return resultList;
-        } catch (IOException e) {
-            log.error("按前缀扫描失败: {}", e.getMessage());
-            return Collections.emptyList();
-        } finally {
-            closeScanner(scanner);
-            closeTable(table);
-        }
+    public static ResultScanner scanWithFilter(String tableName, Filter filter) throws IOException {
+        Connection conn = getConnection();
+        Table table = conn.getTable(TableName.valueOf(tableName));
+        Scan scan = new Scan();
+        scan.setFilter(filter);
+        return table.getScanner(scan);
     }
 
     /**
-     * 根据rowKey范围扫描数据
+     * 范围扫描（指定起始和结束行键）
      *
-     * @param tableName 表名
-     * @param startRow 起始行键（包含）
-     * @param stopRow 结束行键（不包含）
-     * @return 结果List
+     * @param tableName  表名
+     * @param startRow   起始行键（包含）
+     * @param stopRow    结束行键（不包含）
+     * @return ResultScanner
+     * @throws IOException 操作异常
      */
-    public static List<Map<String, Object>> scanByRange(String tableName, String startRow, String stopRow) {
-        Table table = null;
-        ResultScanner scanner = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
-            Scan scan = new Scan();
-            scan.withStartRow(Bytes.toBytes(startRow));
-            scan.withStopRow(Bytes.toBytes(stopRow));
-            scanner = table.getScanner(scan);
-
-            List<Map<String, Object>> resultList = new ArrayList<>();
-            for (Result result : scanner) {
-                Map<String, Object> rowMap = new LinkedHashMap<>();
-                rowMap.put("rowKey", Bytes.toString(result.getRow()));
-
-                for (Cell cell : result.listCells()) {
-                    String family = Bytes.toString(CellUtil.cloneFamily(cell));
-                    String qualifier = Bytes.toString(CellUtil.cloneQualifier(cell));
-                    String value = Bytes.toString(CellUtil.cloneValue(cell));
-                    rowMap.put(family + ":" + qualifier, value);
-                }
-
-                resultList.add(rowMap);
-            }
-
-            log.info("按范围扫描成功: table={}, start={}, stop={}, 行数={}",
-                    tableName, startRow, stopRow, resultList.size());
-            return resultList;
-        } catch (IOException e) {
-            log.error("按范围扫描失败: {}", e.getMessage());
-            return Collections.emptyList();
-        } finally {
-            closeScanner(scanner);
-            closeTable(table);
-        }
+    public static ResultScanner scanByRange(String tableName, String startRow,
+                                            String stopRow) throws IOException {
+        Connection conn = getConnection();
+        Table table = conn.getTable(TableName.valueOf(tableName));
+        Scan scan = new Scan();
+        scan.withStartRow(Bytes.toBytes(startRow));
+        scan.withStopRow(Bytes.toBytes(stopRow));
+        return table.getScanner(scan);
     }
 
     /**
-     * 删除数据（整行）
+     * 将 ResultScanner 转换为可读的字符串列表（用于展示）
+     *
+     * @param scanner ResultScanner
+     * @return 每行数据的可读信息列表
+     * @throws IOException 操作异常
+     */
+    public static List<String> resultScannerToStringList(ResultScanner scanner) throws IOException {
+        List<String> resultList = new ArrayList<>();
+        for (Result result : scanner) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("rowKey=").append(Bytes.toString(result.getRow()));
+            for (Cell cell : result.listCells()) {
+                String family = Bytes.toString(cell.getFamilyArray(), cell.getFamilyOffset(), cell.getFamilyLength());
+                String qualifier = Bytes.toString(cell.getQualifierArray(), cell.getQualifierOffset(), cell.getQualifierLength());
+                String value = Bytes.toString(cell.getValueArray(), cell.getValueOffset(), cell.getValueLength());
+                sb.append(", ").append(family).append(":").append(qualifier).append("=").append(value);
+            }
+            resultList.add(sb.toString());
+        }
+        return resultList;
+    }
+
+    // ======================== 删除数据（Delete） ========================
+
+    /**
+     * 删除一行数据
      *
      * @param tableName 表名
-     * @param rowKey 行键
-     * @return 是否成功
+     * @param rowKey    行键
+     * @throws IOException 操作异常
      */
-    public static boolean deleteRow(String tableName, String rowKey) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static void deleteRow(String tableName, String rowKey) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Delete delete = new Delete(Bytes.toBytes(rowKey));
             table.delete(delete);
-
-            log.info("删除行成功: table={}, rowKey={}", tableName, rowKey);
-            return true;
-        } catch (IOException e) {
-            log.error("删除行失败: {}", e.getMessage());
-            return false;
-        } finally {
-            closeTable(table);
+            LOG.debug("删除行成功: table={}, rowKey={}", tableName, rowKey);
         }
     }
 
     /**
-     * 删除指定列的数据
+     * 删除指定行中某个列族的所有列
      *
      * @param tableName 表名
-     * @param rowKey 行键
-     * @param columnFamily 列族
-     * @param qualifier 列限定符
-     * @return 是否成功
+     * @param rowKey    行键
+     * @param family    列族
+     * @throws IOException 操作异常
      */
-    public static boolean deleteColumn(String tableName, String rowKey, String columnFamily, String qualifier) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static void deleteFamily(String tableName, String rowKey, String family) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             Delete delete = new Delete(Bytes.toBytes(rowKey));
-            delete.addColumn(Bytes.toBytes(columnFamily), Bytes.toBytes(qualifier));
+            delete.addFamily(Bytes.toBytes(family));
             table.delete(delete);
-
-            log.info("删除列成功: table={}, rowKey={}, cf={}, qualifier={}",
-                    tableName, rowKey, columnFamily, qualifier);
-            return true;
-        } catch (IOException e) {
-            log.error("删除列失败: {}", e.getMessage());
-            return false;
-        } finally {
-            closeTable(table);
+            LOG.debug("删除列族成功: table={}, rowKey={}, family={}", tableName, rowKey, family);
         }
     }
 
     /**
-     * 批量删除数据
+     * 删除指定行中某一列的特定版本
      *
      * @param tableName 表名
-     * @param rowKeys 行键列表
-     * @return 是否成功
+     * @param rowKey    行键
+     * @param family    列族
+     * @param qualifier 列限定符
+     * @throws IOException 操作异常
      */
-    public static boolean deleteBatch(String tableName, List<String> rowKeys) {
-        Table table = null;
-        try {
-            table = connection.getTable(TableName.valueOf(tableName));
+    public static void deleteQualifier(String tableName, String rowKey, String family,
+                                       String qualifier) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
+            Delete delete = new Delete(Bytes.toBytes(rowKey));
+            delete.addColumn(Bytes.toBytes(family), Bytes.toBytes(qualifier));
+            table.delete(delete);
+            LOG.debug("删除列成功: table={}, rowKey={}, {}=>{}",
+                    tableName, rowKey, family, qualifier);
+        }
+    }
+
+    /**
+     * 批量删除多行数据
+     *
+     * @param tableName 表名
+     * @param rowKeys   行键列表
+     * @throws IOException 操作异常
+     */
+    public static void deleteBatch(String tableName, List<String> rowKeys) throws IOException {
+        Connection conn = getConnection();
+        try (Table table = conn.getTable(TableName.valueOf(tableName))) {
             List<Delete> deletes = new ArrayList<>();
-
             for (String rowKey : rowKeys) {
                 deletes.add(new Delete(Bytes.toBytes(rowKey)));
             }
-
             table.delete(deletes);
-            log.info("批量删除成功: table={}, 数量={}", tableName, deletes.size());
-            return true;
-        } catch (IOException e) {
-            log.error("批量删除失败: {}", e.getMessage());
-            return false;
-        } finally {
-            closeTable(table);
+            LOG.debug("批量删除 {} 行成功", rowKeys.size());
         }
     }
 
     /**
-     * 关闭Table资源
+     * 释放 ResultScanner 资源
      *
-     * @param table Table对象
+     * @param scanner ResultScanner
      */
-    private static void closeTable(Table table) {
-        if (table != null) {
-            try {
-                table.close();
-            } catch (IOException e) {
-                log.error("关闭Table失败: {}", e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * 关闭ResultScanner资源
-     *
-     * @param scanner ResultScanner对象
-     */
-    private static void closeScanner(ResultScanner scanner) {
+    public static void closeScanner(ResultScanner scanner) {
         if (scanner != null) {
             scanner.close();
         }
-    }
-
-    /**
-     * 关闭所有连接资源
-     */
-    public static void close() {
-        try {
-            if (admin != null) {
-                admin.close();
-            }
-            if (connection != null && !connection.isClosed()) {
-                connection.close();
-            }
-            log.info("HBase连接已关闭");
-        } catch (IOException e) {
-            log.error("关闭HBase连接失败: {}", e.getMessage());
-        }
-    }
-
-    /**
-     * 测试方法
-     */
-    public static void main(String[] args) {
-        log.info("========== 测试HBase连接 ==========");
-
-        // 测试：列出所有表
-        log.info("\n========== 列出所有表 ==========");
-        List<String> tables = getAllTableNames();
-        log.info("当前HBase中的表: {}", tables);
-
-        // 测试：创建表
-        log.info("\n========== 创建表 ==========");
-        String tableName = "test_user";
-        String[] columnFamilies = {"info", "address"};
-        createTable(tableName, columnFamilies);
-
-        // 测试：检查表是否存在
-        log.info("\n========== 检查表是否存在 ==========");
-        boolean exists = isTableExists(tableName);
-        log.info("表 {} 是否存在: {}", tableName, exists);
-
-        // 测试：插入数据
-        log.info("\n========== 插入数据 ==========");
-        putData(tableName, "user001", "info", "name", "张三");
-        putData(tableName, "user001", "info", "age", "25");
-        putData(tableName, "user001", "info", "email", "zhangsan@example.com");
-        putData(tableName, "user001", "address", "city", "北京");
-        putData(tableName, "user001", "address", "street", "朝阳区");
-
-        putData(tableName, "user002", "info", "name", "李四");
-        putData(tableName, "user002", "info", "age", "30");
-        putData(tableName, "user002", "info", "email", "lisi@example.com");
-        putData(tableName, "user002", "address", "city", "上海");
-        putData(tableName, "user002", "address", "street", "浦东新区");
-
-        // 测试：查询单条数据
-        log.info("\n========== 查询单条数据 ==========");
-        Map<String, String> userData = getData(tableName, "user001");
-        log.info("user001的数据: {}", userData);
-
-        // 测试：查询指定列族
-        log.info("\n========== 查询指定列族 ==========");
-        Map<String, String> infoData = getDataByFamily(tableName, "user001", "info");
-        log.info("user001的info列族数据: {}", infoData);
-
-        // 测试：查询指定列
-        log.info("\n========== 查询指定列 ==========");
-        String name = getDataByColumn(tableName, "user001", "info", "name");
-        log.info("user001的姓名: {}", name);
-
-        // 测试：扫描全表
-        log.info("\n========== 扫描全表 ==========");
-        List<Map<String, Object>> allData = scanTable(tableName);
-        for (Map<String, Object> row : allData) {
-            log.info("行数据: {}", row);
-        }
-
-        // 测试：按前缀扫描
-        log.info("\n========== 按前缀扫描 ==========");
-        List<Map<String, Object>> prefixData = scanByPrefix(tableName, "user");
-        log.info("按前缀'user'扫描结果，共 {} 行", prefixData.size());
-
-        // 测试：按范围扫描
-        log.info("\n========== 按范围扫描 ==========");
-        List<Map<String, Object>> rangeData = scanByRange(tableName, "user001", "user003");
-        log.info("按范围扫描结果，共 {} 行", rangeData.size());
-
-        // 测试：删除指定列
-        log.info("\n========== 删除指定列 ==========");
-        deleteColumn(tableName, "user001", "info", "email");
-        Map<String, String> afterDelete = getData(tableName, "user001");
-        log.info("删除email后的数据: {}", afterDelete);
-
-        // 测试：删除整行
-        log.info("\n========== 删除整行 ==========");
-        deleteRow(tableName, "user002");
-        List<Map<String, Object>> afterDeleteRow = scanTable(tableName);
-        log.info("删除user002后的数据，共 {} 行", afterDeleteRow.size());
-
-        // 测试：删除表
-        log.info("\n========== 删除表 ==========");
-        deleteTable(tableName);
-        log.info("表 {} 已删除", tableName);
-
-        // 关闭连接
-        close();
     }
 }
