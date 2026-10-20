@@ -1,0 +1,49 @@
+spring:
+  application:
+    name:springai_helloworld
+
+  data:
+    redis:
+      client-type: jedis
+      url: redis://localhost:6379
+
+  ai:
+    model:
+      embedding: openai
+    vectorstore:
+      redis:
+        initialize-schema: true # 是否在启动时创建/初始化向量索引等结构
+        index-name: java_ai_vector_index_ # RedisSearch 的索引名
+        prefix: "java_ai_" # 存向量文档的 Redis 前缀
+    openai:
+      api-key: ${OPEN_AI_KEY}
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      chat:
+        options:
+          model: qwen3.8-flash
+      embedding:
+        options:
+          model: qwen3.7-text-embedding-flash
+          dimensions: 2048 # 向量维度
+
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: qwen3:1.7b
+
+    mcp:
+      client:
+        enabled: true
+        type: SYNC
+        # 与 mcp-server一致，须先启动mcp-server（默认http://localhost:8888）
+        sse:
+          connections:
+            mcp-weather:
+              url: http://localhost:8888
+
+
+
+logging:
+  level:
+    org.springframework.ai: debug
