@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: mcp-server
+
+  ai:
+    mcp:
+      server:
+        name: mcp-server
+        version: 1.0.0
+        type: SYNC
+        instructions: "提供按城市名的模拟天气预报查询（演示数据）。"
+        annotation-scanner:
+          enabled: true
+#          sse-endpoint: /sse
+#          sse-message-endpoint: /mcp/message
+#          base-url: ""
+
+server:
+  port: 8888

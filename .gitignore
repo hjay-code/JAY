@@ -1,1 +1,23 @@
-/Test/.idea/
+### IntelliJ IDEA / IDE ###
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+
+### Maven / build output ###
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+### Scratch & runtime output ###
+output.txt
+*.log
+*.bak
+
+### Runtime-uploaded files (referenced by absolute local paths, not portable) ###
+springai_helloworld/upload/
+
+### Local secrets / env ###
+.env
+.env.*
+!*/*.env.example
