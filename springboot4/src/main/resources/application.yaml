@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: springboot4
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/demo
+    username: demo_user
+    password: 123456
+
+  mvc:
+    apiversion:
+      default: 1.1 #指定默认api版本号
+      use:
+        header: x-dogs-version # 可以在请求头中指定版本号
