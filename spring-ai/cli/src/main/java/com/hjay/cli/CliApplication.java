@@ -11,6 +11,7 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.session.advisor.SessionMemoryAdvisor;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
@@ -43,6 +44,7 @@ public class CliApplication {
                                         SessionMemoryAdvisor sessionMemoryAdvisorWithRecursiveSummarization,
                                         ToolService toolService
                                         , ToolCallbackProvider toolCallbackProvider // mcp提供bean
+                                        , ToolCallback skillTool // 技能（SKILL.md）
                                         // 默认设置
                                         , @Value("classpath:/prompt/MAIN_AGENT_SYSTEM_PROMPT_V2.md")Resource resource
                                         ) {
@@ -80,7 +82,8 @@ public class CliApplication {
                             ShellTools.builder().build()// shell命令工具
                     ) // 添加工具
                     .defaultTools(
-                            toolCallbackProvider // mcp server
+                            toolCallbackProvider, // mcp server
+                            skillTool // 技能：按名称取 SKILL.md 正文
                     )
                     .build();
             System.out.println("Hello World!");

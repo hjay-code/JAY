@@ -38,3 +38,9 @@ logging:
     console: DEBUG
   level:
     org.springframework.ai: debug
+
+# 技能目录（可选）：额外的本地技能根目录，其下每个子目录放一个 SKILL.md
+# 留空则只加载 classpath:/skills；绝对路径，例如 D:/skills
+app:
+  skills:
+    dir:
