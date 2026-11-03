@@ -1,0 +1,10 @@
+# rabbitmq配置
+spring:
+  rabbitmq:
+    username: guest
+    password: guest
+    virtual-host: /
+    host: 127.0.0.1
+    port: 5672
+server:
+  port: 8080
