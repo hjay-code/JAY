@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title></title>
+	</head>
+	<body>
+		发送消息:<input type="text" id="msgContent" />
+		<input type="button" value="发送消息" onclick="CHAT.chat()"/>
+		<br />
+		<hr />
+		接收消息:<div id="receiveMsg">
+			
+		</div>
+	</body>
+	<script type="text/javascript">
+		window.CHAT = {
+			socket: null,
+			init: function(){
+				// 判断浏览器是否支持websocket
+				if(window.WebSocket){
+					// 创建websocket对象
+					// 前面的ws是协议，后面的ws是我们定义的路由
+					CHAT.socket = new WebSocket("ws://localhost:8088/ws");
+					CHAT.socket.onopen = function (){
+						console.log("连接建立成功");
+					};
+					CHAT.socket.close = function(){
+						console.log("连接关闭");
+					};
+					CHAT.socket.onerror = function(){
+						console.log("连接异常");
+					};
+					CHAT.socket.onmessage = function(e){
+						console.log("接收消息" + e.data);
+						var receiveMsg = document.getElementById("receiveMsg");
+						// 获取本对象原有的内容
+						var html = receiveMsg.innerHTML;
+						// 追加新的内容
+						receiveMsg.innerHTML = html + "<br/>" + e.data;
+					};
+				}else{
+					console.log("您的浏览器不支持websocket协议，请先升级或更换浏览器");
+				}
+			},
+			chat:function(){
+				// 获取发送消息框中所输入的内容
+				var msgContent = document.getElementById("msgContent").value;
+				// 将客户输入的消息进行发送
+				CHAT.socket.send(msgContent);
+			}
+		};
+		CHAT.init();
+	</script>
+</html>

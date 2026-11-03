@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hjay.mapper.UsersMapper">
+    <insert id="addUser">
+        insert into user values (
+            #{id},#{username},#{password},#{nickName},
+            #{faceImage},#{faceImageBig},#{qrcode},#{cid})
+    </insert>
+    <update id="updateUserInfo">
+        update user <set>
+        <if test="username != null">
+            username = #{username}
+        </if>
+        <if test="password != null">
+            password = #{password}
+        </if>
+        <if test="faceImage != null">
+            face_image = #{faceImage}
+        </if>
+        <if test="faceImageBig != null">
+            face_image_big = #{faceImageBig}
+        </if>
+        <if test="nickName != null">
+            nickname = #{nickName}
+        </if>
+        <if test="qrcode != null">
+            qrcode = #{qrcode}
+        </if>
+        <if test="cid != null">
+            cid = #{cid}
+        </if>
+    </set>
+        where id = #{id}
+    </update>
+    <select id="getUserById" resultType="com.hjay.entity.User">
+        select * from user where id = #{id}
+    </select>
+    <select id="getUserByUserName" resultType="com.hjay.entity.User">
+        select * from user where username = #{username}
+    </select>
+</mapper>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hjay.mapper.FriendsRequestMapper">
+    <insert id="addFriendRequest">
+        insert into friends_request values (#{id}, #{sendUserId}, #{acceptUserId}, #{requestDateTime})
+    </insert>
+    <delete id="deleteFriendRequest">
+        delete from friends_request where send_user_id = #{sendUserId} and accept_user_id = #{acceptUserId}
+    </delete>
+</mapper>

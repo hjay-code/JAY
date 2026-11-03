@@ -1,0 +1,69 @@
+#webserver端口
+server:
+  port: 5050
+  servlet:
+    context-path: /api
+    session:
+      timeout: PT60M #一个小时超时
+
+# websocket端口
+ws:
+  port: 5001
+
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/easychat?characterEncoding=utf-8
+    username: root
+    password: 123456
+    hikari:
+      pool-name: HikariCPDatasource
+      minimum-idle: 5
+      idle-timeout: 180000
+      maximum-pool-size: 10
+      auto-commit: true
+      max-lifetime: 1800000
+      connection-timeout: 30000
+      connection-test-query: SELECT 1
+  #redis
+  redis:
+    database: 0 #数据库索引，默认为0
+    host: 127.0.0.1
+    port: 6379
+    jedis:
+      pool:
+        max-active: 20 #最大连接数，负数表示没有限制
+        max-wait: 1 #最大阻塞等待时间,负数表示没有限制
+        max-idle: 10 #最大空闲连接
+        min-idle: 0 #最小空闲连接
+    timeout: 2000 #连接超时时间
+    connect-timeout: 2000
+
+
+  servlet:
+    multipart: #文件上传大小限制
+      max-file-size: 15MB
+      max-request-size: 15MB
+  mvc: #错误页处理
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+
+project:
+  folder: D:/HJay/Java/Netty/easychat/code/src/main/resources/log
+log:
+  root:
+    level: debug
+
+admin:
+  emails: coder_hjay@qq.com
+
+debug: true
+
+dev: false
+
+logging:
+  level:
+    com.hjay: debug

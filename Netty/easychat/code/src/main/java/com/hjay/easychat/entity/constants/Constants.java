@@ -1,0 +1,10 @@
+package com.hjay.easychat.entity.constants;
+
+public class Constants {
+
+    public static final String REDIS_KEY_CHECK_CODE = "easychat:checkcode:";
+
+    public static final Integer REDIS_TIME_ONE_MIN = 60;
+
+    public static final Integer LENGTH = 11;
+}

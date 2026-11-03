@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hjay.mapper.MyFriendsMapper">
+    <insert id="addMyFriend">
+        insert into my_friends values (#{id}, #{myUserId}, #{myFriendUserId})
+    </insert>
+    <select id="getOneMyFriend" resultType="com.hjay.entity.MyFriend">
+        select * from my_friends where my_user_id = #{myUserId} and my_friend_user_id = #{myFriendUserId}
+    </select>
+    <select id="getMyFriends" resultType="com.hjay.vo.MyFriendsVO">
+        select
+            u.id as friendUserId,
+            u.username as friendUsername,
+            u.face_image as friendFaceImage,
+            u.nickname as friendNickname
+        from my_friends mf
+                 left join users u
+                           on u.id = mf.my_friend_user_id
+        where mf.my_user_id = #{myUserId}
+    </select>
+</mapper>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.hjay.easychat.mappers.UserInfoMapper">
+    <insert id="addBatch"></insert>
+    <insert id="addOrUpdateBatch"></insert>
+    <update id="updateByParam"></update>
+    <update id="updateUserInfoByUserId"></update>
+    <update id="updateUserInfoByEmail"></update>
+    <delete id="deleteByParam"></delete>
+    <delete id="deleteUserInfoByUserId"></delete>
+    <delete id="deleteUserInfoByEmail"></delete>
+    <select id="findListByParam" resultType="com.hjay.easychat.entity.po.UserInfo"></select>
+    <select id="findCountByParam" resultType="java.lang.Integer"></select>
+    <select id="findListByPage" resultType="com.hjay.easychat.entity.po.UserInfo"></select>
+    <select id="getUserInfoByUserId" resultType="com.hjay.easychat.entity.po.UserInfo"></select>
+    <select id="getUserInfoByEmail" resultType="com.hjay.easychat.entity.po.UserInfo"></select>
+</mapper>
