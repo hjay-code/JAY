@@ -1,3 +1,178 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: demo
+# redis 的属性绑定
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+# 文档分割点
+# 配置属性
+---
+pig:
+  id: 1
+  name: 佩奇
+  age: 5
+
+# 配置属性
+sheep:
+  id: 2
+  name: 肖恩
+  color: red
+
+
+# 绑定复杂对象属性
+---
+
+# string类型可以不加引号
+person:
+  # 单引号不会转义
+  name: '刘邦 \n 项羽'
+#  name: 嬴政
+  age: 5000
+  # 驼峰结构建议这样写
+  birth-day: 1998/11/12 10:10:10
+#  birthDay: 1999/10/11 09:09:09
+  like: true
+  child:
+    # 双引号会进行转义
+    name: "刘彻 \n 456"
+#    name: 扶苏
+    age: 4900
+    birthday: 2019/12/12 11:11:11
+    # list 类型两种写法
+#    test: ["ghi", "jkl"]
+    test:
+      - ghi
+      - jkl
+      # 大文本写法
+      # 保留格式
+      - |
+        会保留后面的
+        所有字符
+          包括这种
+            格式
+      # 这种写法会把换行符替换成空格
+      - >
+        这种赋值
+        的写法
+          会有不一
+            样的效果
+  # list 对象
+  dogs:
+    - name: 小绿
+      color: green
+    # 也可以表示对象
+    - {name: 小红, color: red}
+  # map 类型
+  cats:
+    c1:
+      name: 小粉
+      id: 3
+    c2: {name: 小紫, id: 4}
+
+
+
+# 配置日志属性
+---
+logging:
+  level:
+    # 指定日志级别，可以指定到某一个类或者某一个包
+    com.hjay.demo: info
+    # 没有指定日志级别就默认使用 root 的级别， root 默认为info
+    root: info
+    # 自定义 日志组 级别
+    abc: info
+  # 自定义日志级别组，可以同一指定日志级别
+  group:
+    abc: com.hjay.demo.config,com.hjay.demo.controller
+
+  # 不配置则只打印在控制台
+  file:
+    # 指定 文件地址
+#    path: D:\HJay\code\HJAY\JAY\springboot3\demo
+    # 指定 文件名，只配置文件名则默认保存在当前项目的同级目录下
+    # 也可以添加全路径名
+    # path 和 name 都存在时，以name为主
+    name: D:\HJay\code\HJAY\JAY\springboot3\hahaha.log
+
+  # 日志滚动策略，只默认支持logback，其他日志框架需要单独配置
+  logback:
+    rollingpolicy:
+      file-name-pattern: ${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz # 文件切片名称
+      max-file-size: 1MB # 文件切片大小
+
+
+---
+# spring web 配置
+spring:
+  web:
+    # 静态资源 属性
+    resources:
+      add-mappings: true # 默认开启静态资源映射
+      # 缓存 配置
+      cache:
+        period: 3600 # 缓存保存时间，默认 3600s
+        # 缓存控制属性，会覆盖上面的缓存属性
+        cachecontrol:
+          max-age: 7200 # 缓存最大保存时间 7200s，会覆盖上面的缓存保存时间
+      # 默认四处静态资源位置，可以手动修改
+      # 按顺序注册，如 4.png 如果已经映射到前一个，后一个就不会被映射到路径中,因为都相当于在 / 路径下，只会有一个文件被映射
+  mvc:
+    # 内容协商
+    contentnegotiation:
+      # 开启内容协商
+      favor-parameter: true
+      # 指定请求参数名代表需要协商的名 当前设置为 ?type=json，type后面拼类型
+      parameter-name: type
+      # 新增一种响应转换配置， yaml 其实添加 yaml支持后已经默认实现了 applicatio/uaml，所以这里设置 text/yaml 用来对比
+      media-types:
+        yaml: text/yaml
+#      static-locations:
+#        - classpath:/META-INF/resources/
+#        - classpath:/resources/
+#        - classpath:/static/
+#        - classpath:/public/
+#        - classpath:/a/
+# mvc 配置
+#  mvc:
+#    webjars-path-pattern: /webjars/**
+#    # 添加静态资源路径前缀
+#    static-path-pattern: /static/**
+
+# 默认错误处理机制
+---
+server:
+  error:
+    path: /error
+
+
+---
+
+# mysql 配置
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: root
+    password: 123456
+    type: com.zaxxer.hikari.HikariDataSource
+    url: jdbc:mysql://localhost:3306/demo
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true # 开启驼峰命名映射规则
+
+# 自定义starter 配置
+---
+robot:
+  name: john
+  age: 18
+  email: hello@jay.com
+
+# rpc
+---
+rpc:
+  key: 9cb096a77d1901229825322500fe6a13
