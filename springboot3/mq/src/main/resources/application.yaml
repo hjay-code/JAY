@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: mq
+  kafka:
+    # 配置集群
+    bootstrap-servers:
+      - localhost:9092
+
+    producer:
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer # value 序列化器
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer # key 序列化器
