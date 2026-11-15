@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: nosql
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+#      client-type: lettuce # 客户端类型
+#      lettuce:
+#        pool:
+#          enabled: true # 开启连接池等
